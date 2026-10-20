@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión de Órdenes de Producción TMV (Firebase)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts dinámicas -->
+    <link id="dynamic-font-link" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+    
+    <!-- SDK de Firebase CDN (Compatibilidad v9) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --app-font: 'Inter', sans-serif;
+            --primary-color: #0d2c6c;
+            --secondary-color: #c01921;
+        }
+        body {
+            font-family: var(--app-font);
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-page { 
+                page-break-after: always !important; 
+                margin: 0 !important;
+                padding: 10mm !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+                height: 100vh !important;
+            }
+            body { background: white !important; font-size: 11px !important; }
+            .shadow-lg, .shadow-md, .shadow-sm { box-shadow: none !important; }
+            .border { border-color: #000 !important; }
+            table { width: 100% !important; border-collapse: collapse !important; }
+            th, td { border: 1px solid #000 !important; padding: 4px !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex flex-col text-slate-800">
+
+    <!-- BARRA DE NAVEGACIÓN Y CABECERA (no imprimible) -->
+    <header class="no-print bg-slate-900 text-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div id="app-logo-container" class="bg-white p-1 rounded">
+                    <svg width="40" height="24" viewBox="0 0 200 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 20 H70 V40 H50 V90 H30 V40 H10 Z" fill="#0D2C6C"/>
+                        <path d="M60 20 L85 90 H105 L130 20 H110 L95 65 L80 20 Z" fill="#0D2C6C"/>
+                        <path d="M125 20 L150 90 H170 L195 20 H175 L160 65 L145 20 Z" fill="#0D2C6C"/>
+                        <path d="M5 65 C40 85, 160 85, 195 55 L190 45 C155 75, 45 75, 10 55 Z" fill="#C01921"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 id="app-title-display" class="font-bold text-lg leading-none">TMV CONFECCIONES</h1>
+                    <span id="app-subtitle-display" class="text-xs text-slate-400">Sistema en Nube Firebase</span>
+                </div>
+            </div>
+
+            <!-- Menú de Usuario / Login / Sesión -->
+            <div id="session-controls" class="flex items-center space-x-4">
+                <div id="user-badge" class="hidden flex items-center space-x-2 text-sm bg-slate-800 px-3 py-1 rounded-full border border-slate-700">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span id="logged-user-name" class="font-medium text-slate-200">Usuario</span>
+                    <span id="logged-user-role" class="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300">Rol</span>
+                </div>
+                <button id="btn-login-modal" onclick="openLoginModal()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-lg font-medium transition">
+                    Iniciar Sesión
+                </button>
+                <button id="btn-logout" onclick="logout()" class="hidden bg-slate-700 hover:bg-slate-600 text-white text-sm px-3 py-1.5 rounded-lg transition">
+                    Salir
+                </button>
+            </div>
+        </div>
+
+        <!-- NAVEGACIÓN POR PESTAÑAS -->
+        <nav id="main-nav" class="hidden bg-slate-800 border-t border-slate-700">
+            <div class="max-w-7xl mx-auto px-4 flex space-x-1">
+                <button onclick="switchTab('tab-op')" id="nav-tab-op" class="nav-btn px-4 py-2.5 text-sm font-medium border-b-2 border-blue-500 text-white flex items-center gap-2">
+                    📄 Crear Orden (OPP / OPM)
+                </button>
+                <button onclick="switchTab('tab-rutas')" id="nav-tab-rutas" class="nav-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
+                    🛠️ Rutas Técnicas y Materiales
+                </button>
+                <button onclick="switchTab('tab-historial')" id="nav-tab-historial" class="nav-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
+                    🔍 Buscar e Historial
+                </button>
+                <button onclick="switchTab('tab-admin')" id="nav-tab-admin" class="hidden nav-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-amber-400 hover:text-amber-300 flex items-center gap-2">
+                    ⚙️ Administración
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 no-print">
+
+        <!-- MENSAJE SI NO HA INICIADO SESIÓN -->
+        <div id="view-locked" class="bg-white p-12 rounded-2xl shadow-sm text-center max-w-md mx-auto my-12 border border-slate-200">
+            <div class="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">🔒</div>
+            <h2 class="text-xl font-bold text-slate-800 mb-2">Acceso Restringido</h2>
+            <p class="text-slate-500 text-sm mb-6">Debes iniciar sesión para acceder al sistema en la nube de TMV.</p>
+            <button onclick="openLoginModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition shadow-md">
+                Ingresar Credenciales
+            </button>
+        </div>
+
+        <!-- PESTAÑA 1: CREAR ORDEN DE PRODUCCIÓN -->
+        <div id="tab-op" class="tab-content hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center justify-between">
+                    <span>Generar Nueva Orden de Producción</span>
+                    <div class="flex gap-2">
+                        <span class="text-xs bg-blue-50 text-blue-700 font-semibold px-2.5 py-1 rounded-md border border-blue-200">
+                            Próxima OPP: <strong id="lbl-next-opp">OPP-00001</strong>
+                        </span>
+                        <span class="text-xs bg-purple-50 text-purple-700 font-semibold px-2.5 py-1 rounded-md border border-purple-200">
+                            Próxima OPM: <strong id="lbl-next-opm">OPM-00001</strong>
+                        </span>
+                    </div>
+                </h2>
+
+                <form id="form-create-op" onsubmit="event.preventDefault(); generateProductionOrder();" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Tipo de Orden</label>
+                        <select id="op-tipo" onchange="updateConsecutivePreview()" class="w-full border border-slate-300 p-2 rounded-lg text-sm bg-slate-50">
+                            <option value="OPP">OPP - Orden de Producción de Producto</option>
+                            <option value="OPM">OPM - Orden de Producción de Muestra</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Consecutivo Bloqueado</label>
+                        <input type="text" id="op-consecutivo" readonly class="w-full border border-slate-200 p-2 rounded-lg text-sm bg-slate-100 font-bold text-slate-700">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Planeador Asignado</label>
+                        <select id="op-planeador" required class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                            <option value="DELGADO MESA RODOLFO">DELGADO MESA RODOLFO</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Seleccionar Ruta / Referencia</label>
+                        <select id="op-ruta-select" onchange="onSelectRouteForOP()" required class="w-full border border-slate-300 p-2 rounded-lg text-sm bg-amber-50">
+                            <option value="">-- Cargando rutas desde Firebase... --</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Cliente</label>
+                        <input type="text" id="op-cliente" readonly class="w-full border border-slate-200 p-2 rounded-lg text-sm bg-slate-100">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Color Principal</label>
+                        <input type="text" id="op-color" readonly class="w-full border border-slate-200 p-2 rounded-lg text-sm bg-slate-100 font-medium">
+                    </div>
+
+                    <!-- CURVA DE PEDIDO -->
+                    <div class="md:col-span-3 mt-4">
+                        <h3 class="text-sm font-bold text-slate-700 mb-2">Ingreso de Curva de Cantidades por Talla</h3>
+                        <div id="curve-inputs-container" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                            <p class="text-xs text-slate-400 col-span-full text-center py-2">Selecciona primero una referencia.</p>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-3 flex justify-end gap-3 mt-4">
+                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-2.5 rounded-lg text-sm shadow-md transition">
+                            🖨️ Generar y Guardar en Nube (Imprimir 8 Páginas)
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- PESTAÑA 2: GESTIÓN DE RUTAS TÉCNICAS Y MATERIALES -->
+        <div id="tab-rutas" class="tab-content hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">Crear / Modificar Ruta Técnica en Nube</h2>
+                
+                <form id="form-create-route" onsubmit="event.preventDefault(); saveRouteToFirebase();" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Referencia / Producto</label>
+                        <input type="text" id="route-ref" placeholder="Ej: POLO AZUCAR" required class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">SKU / Código</label>
+                        <input type="text" id="route-sku" placeholder="Ej: POL-AZU-103" required class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Color Principal</label>
+                        <input type="text" id="route-color" placeholder="Ej: ROJO-103" required class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Categoría</label>
+                        <select id="route-category" class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                            <option value="Hombre">Hombre</option>
+                            <option value="Dama">Dama</option>
+                            <option value="Niño">Niño</option>
+                        </select>
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Cliente</label>
+                        <input type="text" id="route-client" placeholder="Ej: STAGMI / TMV" required class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Curva de Tallas Habilitadas (Separadas por Comas)</label>
+                        <input type="text" id="route-sizes" value="XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, 8, 10, 12, 14, 16" required class="w-full border border-slate-300 p-2 rounded-lg text-sm">
+                    </div>
+
+                    <div class="md:col-span-4 flex justify-end mt-4">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg text-sm transition">
+                            ☁️ Guardar Ruta en Firebase
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- PESTAÑA 3: BUSCADOR E HISTORIAL -->
+        <div id="tab-historial" class="tab-content hidden space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4">Historial de Órdenes Guardadas en Tiempo Real</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left border-collapse">
+                        <thead class="bg-slate-50 text-slate-600 uppercase border-b">
+                            <tr>
+                                <th class="p-3">Número OP</th>
+                                <th class="p-3">Tipo</th>
+                                <th class="p-3">Fecha</th>
+                                <th class="p-3">Referencia</th>
+                                <th class="p-3">Color</th>
+                                <th class="p-3">Total Unid.</th>
+                                <th class="p-3 text-right">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-history-body" class="divide-y divide-slate-100">
+                            <!-- Datos cargados dinámicamente desde Firebase -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- DOCUMENTO IMPRIMIBLE (8 PÁGINAS) -->
+    <div id="printable-document" class="hidden"></div>
+
+    <!-- MODAL DE LOGIN -->
+    <div id="modal-login" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white p-8 rounded-2xl shadow-xl max-w-sm w-full">
+            <h3 class="text-lg font-bold text-slate-800 mb-1 text-center">Ingreso al Sistema</h3>
+            <form onsubmit="event.preventDefault(); processLogin();" class="space-y-4 mt-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Usuario</label>
+                    <input type="text" id="login-username" required class="w-full border border-slate-300 p-2.5 rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Contraseña</label>
+                    <input type="password" id="login-password" required class="w-full border border-slate-300 p-2.5 rounded-lg text-sm">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg text-sm">
+                    Entrar
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- CONFIGURACIÓN DE FIREBASE Y LÓGICA DE NEGOCIO -->
+    <script>
+        // ------------------------------------------------------------------------
+        // 1. REEMPLAZA ESTE BLOQUE CON LAS CLAVES COPIADAS DE TU CONSOLA FIREBASE
+        // ------------------------------------------------------------------------
+        const firebaseConfig = {
+            apiKey: "AIzaSy_TU_API_KEY_AQUI",
+            authDomain: "TU_PROYECTO.firebaseapp.com",
+            projectId: "TU_PROYECTO_ID",
+            storageBucket: "TU_PROYECTO.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:1234567890:web:abcdef123456"
+        };
+
+        // Inicializar Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // ESTADO LOCAL DE LA APLICACIÓN
+        let currentUser = null;
+        let routesCache = [];
+        let configCache = { nextOpp: 3633, nextOpm: 101 };
+
+        // AL CARGAR LA PÁGINA: ESCUCHAR CAMBIOS EN TIEMPO REAL DESDE FIREBASE
+        document.addEventListener('DOMContentLoaded', () => {
+            listenFirebaseConfig();
+            listenFirebaseRoutes();
+            listenFirebaseOrders();
+        });
+
+        // 1. ESCUCHAR CONSECUTIVOS EN VIVO
+        function listenFirebaseConfig() {
+            db.collection("config").doc("consecutivos").onSnapshot((doc) => {
+                if (doc.exists) {
+                    configCache = doc.data();
+                } else {
+                    // Inicializar si no existe
+                    db.collection("config").doc("consecutivos").set(configCache);
+                }
+                updateConsecutivePreview();
+            });
+        }
+
+        // 2. ESCUCHAR RUTAS EN VIVO DESDE CUALQUIER COMPUTADOR
+        function listenFirebaseRoutes() {
+            db.collection("rutas").onSnapshot((snapshot) => {
+                routesCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                const select = document.getElementById('op-ruta-select');
+                select.innerHTML = '<option value="">-- Selecciona una Referencia Registrada --</option>';
+                routesCache.forEach(r => {
+                    select.innerHTML += `<option value="${r.id}">${r.ref} (${r.color}) - SKU: ${r.sku}</option>`;
+                });
+            });
+        }
+
+        // 3. ESCUCHAR HISTORIAL DE ÓRDENES EN VIVO
+        function listenFirebaseOrders() {
+            db.collection("ordenes").orderBy("fechaTimestamp", "desc").onSnapshot((snapshot) => {
+                const tbody = document.getElementById('orders-history-body');
+                tbody.innerHTML = '';
+                snapshot.docs.forEach(doc => {
+                    const o = doc.data();
+                    tbody.innerHTML += `
+                        <tr>
+                            <td class="p-3 font-bold text-blue-700">${o.consecutivo}</td>
+                            <td class="p-3">${o.tipo}</td>
+                            <td class="p-3 text-slate-500">${o.fecha}</td>
+                            <td class="p-3 font-semibold">${o.reference}</td>
+                            <td class="p-3">${o.color}</td>
+                            <td class="p-3 font-bold">${o.totalQty}</td>
+                            <td class="p-3 text-right">
+                                <button onclick='reprintOrder(${JSON.stringify(o)})' class="bg-slate-800 text-white px-3 py-1 rounded text-xs">
+                                    🖨️ Reimprimir
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        // GUARDAR NUEVA RUTA EN FIREBASE
+        async function saveRouteToFirebase() {
+            const ref = document.getElementById('route-ref').value;
+            const sku = document.getElementById('route-sku').value;
+            const color = document.getElementById('route-color').value;
+            const category = document.getElementById('route-category').value;
+            const client = document.getElementById('route-client').value;
+            const sizes = document.getElementById('route-sizes').value.split(',').map(s => s.trim());
+
+            try {
+                await db.collection("rutas").add({
+                    ref, sku, color, category, client, sizes,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                alert("¡Ruta sincronizada con éxito en la nube de Firebase!");
+                document.getElementById('form-create-route').reset();
+            } catch (e) {
+                alert("Error al guardar en Firebase: " + e.message);
+            }
+        }
+
+        // GENERAR ORDEN Y ACTUALIZAR EN FIREBASE
+        async function generateProductionOrder() {
+            const routeId = document.getElementById('op-ruta-select').value;
+            const route = routesCache.find(r => r.id === routeId);
+            if (!route) return alert('Selecciona una referencia.');
+
+            const tipo = document.getElementById('op-tipo').value;
+            const consecutivo = document.getElementById('op-consecutivo').value;
+            const planeador = document.getElementById('op-planeador').value;
+
+            const curve = {};
+            let totalQty = 0;
+            document.querySelectorAll('.curve-input').forEach(input => {
+                const qty = parseInt(input.value) || 0;
+                curve[input.dataset.size] = qty;
+                totalQty += qty;
+            });
+
+            if (totalQty <= 0) return alert('Ingresa al menos 1 unidad en la curva.');
+
+            const order = {
+                consecutivo, tipo, planeador,
+                fecha: new Date().toLocaleString(),
+                fechaTimestamp: Date.now(),
+                reference: route.ref,
+                sku: route.sku,
+                color: route.color,
+                curve, totalQty
+            };
+
+            // 1. Guardar Orden en Firebase
+            await db.collection("ordenes").add(order);
+
+            // 2. Incrementar Consecutivo en Firebase
+            if (tipo === 'OPP') configCache.nextOpp++;
+            else configCache.nextOpm++;
+
+            await db.collection("config").doc("consecutivos").set(configCache);
+
+            renderPrintableDocument(order);
+            window.print();
+        }
+
+        // AUXILIARES DE INTERFAZ Y NAVEGACIÓN
+        function openLoginModal() { document.getElementById('modal-login').classList.remove('hidden'); }
+        function processLogin() {
+            currentUser = { name: "Usuario TMV", role: "Admin" };
+            document.getElementById('user-badge').classList.remove('hidden');
+            document.getElementById('btn-login-modal').classList.add('hidden');
+            document.getElementById('btn-logout').classList.remove('hidden');
+            document.getElementById('main-nav').classList.remove('hidden');
+            document.getElementById('view-locked').classList.add('hidden');
+            document.getElementById('modal-login').classList.add('hidden');
+            switchTab('tab-op');
+        }
+        function logout() { location.reload(); }
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+        }
+        function updateConsecutivePreview() {
+            const tipo = document.getElementById('op-tipo').value;
+            const num = tipo === 'OPP' ? configCache.nextOpp : configCache.nextOpm;
+            document.getElementById('op-consecutivo').value = `${tipo}-${String(num).padStart(8, '0')}`;
+            document.getElementById('lbl-next-opp').innerText = `OPP-${String(configCache.nextOpp).padStart(8, '0')}`;
+            document.getElementById('lbl-next-opm').innerText = `OPM-${String(configCache.nextOpm).padStart(8, '0')}`;
+        }
+        function onSelectRouteForOP() {
+            const routeId = document.getElementById('op-ruta-select').value;
+            const route = routesCache.find(r => r.id === routeId);
+            const container = document.getElementById('curve-inputs-container');
+            if (!route) return;
+
+            document.getElementById('op-cliente').value = route.client;
+            document.getElementById('op-color').value = route.color;
+            container.innerHTML = '';
+            route.sizes.forEach(size => {
+                container.innerHTML += `
+                    <div class="bg-white p-2 rounded border">
+                        <label class="block text-center font-bold text-xs mb-1">Talla ${size}</label>
+                        <input type="number" min="0" value="0" data-size="${size}" class="curve-input w-full border text-center p-1 font-semibold text-sm">
+                    </div>
+                `;
+            });
+        }
+        function renderPrintableDocument(op) {
+            const doc = document.getElementById('printable-document');
+            doc.classList.remove('hidden');
+            doc.innerHTML = `
+                <div class="print-page bg-white p-6 font-mono text-xs">
+                    <div class="flex justify-between border-b-2 border-black pb-2 mb-4">
+                        <div class="font-bold text-xl">TMV</div>
+                        <div class="text-right">
+                            <div class="font-bold text-sm">Número: ${op.consecutivo}</div>
+                            <div>Fecha: ${op.fecha}</div>
+                        </div>
+                    </div>
+                    <div class="text-center font-bold text-sm mb-4">ORDEN DE PRODUCCIÓN (${op.reference})</div>
+                    <p>Color: ${op.color} | Total Unidades: ${op.totalQty}</p>
+                </div>
+            `;
+        }
+        function reprintOrder(o) { renderPrintableDocument(o); window.print(); }
+    </script>
+</body>
+</html>
